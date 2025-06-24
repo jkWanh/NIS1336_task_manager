@@ -20,6 +20,7 @@ public:
 private:
     void loadTasks();
     void saveTasks() const;
+    void saveTasks_nolock() const; // Helper function that assumes lock is held
     long long getNextId();
 
     std::string username_;

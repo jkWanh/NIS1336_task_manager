@@ -29,6 +29,12 @@ void TaskManager::loadTasks() {
 
 void TaskManager::saveTasks() const {
     std::lock_guard<std::mutex> lock(tasks_mutex_);
+    saveTasks_nolock();
+}
+
+// Private helper that assumes the lock is already held by the caller.
+// This prevents deadlocks from nested lock attempts.
+void TaskManager::saveTasks_nolock() const {
     std::ofstream o(taskFile_);
     json j = tasks_;
     o << std::setw(4) << j << std::endl;
@@ -61,21 +67,8 @@ bool TaskManager::addTask(const Task& task) {
     Task newTask = task;
     newTask.id = getNextId();
     tasks_.push_back(newTask);
-    
-    // 立即保存
-    // 因为 saveTasks 内部也会加锁，所以我们在这里手动调用它，而不是让 addTask 成为 const
-    // 为了避免死锁，我们不能在持有锁的情况下调用另一个需要相同锁的函数。
-    // 幸运的是，saveTasks 是 const 函数，它内部的锁是 mutable 的，所以我们可以这样做。
-    // 但更好的设计是分离出无锁的保存逻辑。为简单起见，我们保持现状，因为 lock_guard 是基于作用域的。
-    // 此处锁会在函数结束时释放，所以我们先解锁再保存。
-    // 实际上，saveTasks() const 内部会重新加锁，所以这是安全的。
-    // 我们在这里直接调用 saveTasks()，它会处理自己的锁。
-    // 为了确保数据一致性，我们应该在添加后立即保存。
-    
-    // 释放锁之前先保存
-    std::ofstream o(taskFile_);
-    json j = tasks_;
-    o << std::setw(4) << j << std::endl;
+
+    saveTasks_nolock(); // Call the no-lock version since we already hold the lock.
 
     std::cout << "Task '" << newTask.name << "' added with ID " << newTask.id << "." << std::endl;
     return true;
@@ -89,7 +82,7 @@ bool TaskManager::deleteTask(long long id) {
 
     if (it != tasks_.end()) {
         tasks_.erase(it, tasks_.end());
-        saveTasks();
+        saveTasks_nolock(); // Call the no-lock version to avoid deadlock.
         std::cout << "Task with ID " << id << " deleted." << std::endl;
         return true;
     }
@@ -141,6 +134,6 @@ void TaskManager::updateTask(const Task& task) {
     });
     if (it != tasks_.end()) {
         *it = task;
-        saveTasks();
+        saveTasks_nolock(); // Call the no-lock version to avoid deadlock.
     }
 }
